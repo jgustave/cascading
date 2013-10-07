@@ -132,7 +132,12 @@ public class TupleHasher
     @Override
     public int hashCode( Object value )
       {
-      return value.hashCode();
+        if( value instanceof Enum ) {
+          Enum theEnum = (Enum)value;
+            return( theEnum.ordinal() ^ theEnum.name().hashCode() );
+        }else {
+          return value.hashCode();
+        }
       }
     }
   }
