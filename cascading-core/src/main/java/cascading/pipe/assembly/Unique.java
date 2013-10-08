@@ -255,7 +255,7 @@ public class Unique extends SubAssembly
     for( int i = 0; i < filters.length; i++ )
       filters[ i ] = new Each( pipes[ i ], uniqueFields, partialDuplicates );
 
-    Pipe pipe = new GroupBy( name, filters, uniqueFields );
+    Pipe pipe = new GroupBy( name, filters, uniqueFields, uniqueFields );
     pipe = new Every( pipe, Fields.ALL, new First(), Fields.RESULTS );
 
     setTails( pipe );

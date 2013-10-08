@@ -134,7 +134,7 @@ public class TupleHasher
       {
         if( value instanceof Enum ) {
           Enum theEnum = (Enum)value;
-            return( theEnum.ordinal() ^ theEnum.name().hashCode() );
+          return( theEnum.ordinal() ^ theEnum.name().hashCode() );
         }else {
           return value.hashCode();
         }
