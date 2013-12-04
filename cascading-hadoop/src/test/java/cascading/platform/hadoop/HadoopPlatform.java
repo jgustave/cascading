@@ -49,6 +49,7 @@ import cascading.tap.hadoop.TemplateTap;
 import cascading.tap.hadoop.util.Hadoop18TapUtil;
 import cascading.tuple.Fields;
 import cascading.util.Util;
+import org.apache.commons.io.IOUtils;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.FileUtil;
@@ -62,6 +63,20 @@ import org.slf4j.LoggerFactory;
 /**
  * Class HadoopPlatform is automatically loaded and injected into a {@link cascading.PlatformTestCase} instance
  * so that all *PlatformTest classes can be tested against Apache Hadoop.
+ * <p/>
+ * This platform works in three modes.
+ * <p/>
+ * Hadoop standalone mode is when Hadoop is NOT run as a cluster, and all
+ * child tasks are in process and in memory of the "client" side code.
+ * <p/>
+ * Hadoop mini cluster mode where a cluster is created on demand using the Hadoop MiniDFSCluster and MiniMRCluster
+ * utilities. When a PlatformTestCase requests to use a cluster, this is the default cluster. All properties are
+ * pulled from the current CLASSPATH via the JobConf.
+ * <p/>
+ * Lastly remote cluster mode is enabled when the System property "mapred.jar" is set. This is a Hadoop property
+ * specifying the Hadoop "job jar" to be used cluster side. This MUST be the Cascading test suite and dependencies
+ * packaged in a Hadoop compatible way. This is left to be implemented by the framework using this mode. Additionally
+ * these properties may optionally be set if not already in the CLASSPATH; fs.default.name and mapred.job.tracker.
  */
 public class HadoopPlatform extends TestPlatform
   {
@@ -129,11 +144,36 @@ public class HadoopPlatform extends TestPlatform
 
       conf.setInt( "mapred.job.reuse.jvm.num.tasks", -1 );
 
-      dfs = new MiniDFSCluster( conf, 4, true, null );
-      fileSys = dfs.getFileSystem();
-      mr = new MiniMRCluster( 4, fileSys.getUri().toString(), 1, null, null, conf );
+      if( !Util.isEmpty( System.getProperty( "mapred.jar" ) ) )
+        {
+        LOG.info( "using a remote cluster with jar: {}", System.getProperty( "mapred.jar" ) );
+        jobConf = conf;
 
-      jobConf = mr.createJobConf();
+        jobConf.setJar( System.getProperty( "mapred.jar" ) );
+
+        if( !Util.isEmpty( System.getProperty( "fs.default.name" ) ) )
+          {
+          LOG.info( "using {}={}", "fs.default.name", System.getProperty( "fs.default.name" ) );
+          jobConf.set( "fs.default.name", System.getProperty( "fs.default.name" ) );
+          }
+
+        if( !Util.isEmpty( System.getProperty( "mapred.job.tracker" ) ) )
+          {
+          LOG.info( "using {}={}", "mapred.job.tracker", System.getProperty( "mapred.job.tracker" ) );
+          jobConf.set( "mapred.job.tracker", System.getProperty( "mapred.job.tracker" ) );
+          }
+
+        jobConf.set( "mapreduce.user.classpath.first", "true" ); // use test dependencies
+        fileSys = FileSystem.get( jobConf );
+        }
+      else
+        {
+        dfs = new MiniDFSCluster( conf, 4, true, null );
+        fileSys = dfs.getFileSystem();
+        mr = new MiniMRCluster( 4, fileSys.getUri().toString(), 1, null, null, conf );
+
+        jobConf = mr.createJobConf();
+        }
 
       jobConf.set( "mapred.child.java.opts", "-Xmx512m" );
       jobConf.setInt( "mapred.job.reuse.jvm.num.tasks", -1 );
@@ -215,7 +255,7 @@ public class HadoopPlatform extends TestPlatform
     if( !isUseCluster() )
       return;
 
-    Path path = new Path( inputFile );
+    Path path = new Path( safeFileName( inputFile ) );
 
     if( !fileSys.exists( path ) )
       FileUtil.copy( new File( inputFile ), fileSys, path, false, jobConf );
@@ -227,7 +267,7 @@ public class HadoopPlatform extends TestPlatform
     if( !isUseCluster() )
       return;
 
-    Path path = new Path( outputFile );
+    Path path = new Path( safeFileName( outputFile ) );
 
     if( !fileSys.exists( path ) )
       throw new FileNotFoundException( "data file not found: " + outputFile );
@@ -263,58 +303,58 @@ public class HadoopPlatform extends TestPlatform
   @Override
   public boolean remoteExists( String outputFile ) throws IOException
     {
-    return fileSys.exists( new Path( outputFile ) );
+    return fileSys.exists( new Path( safeFileName( outputFile  ) ) );
     }
 
   @Override
   public boolean remoteRemove( String outputFile, boolean recursive ) throws IOException
     {
-    return fileSys.delete( new Path( outputFile ), recursive );
+    return fileSys.delete( new Path( safeFileName( outputFile ) ), recursive );
     }
 
   @Override
   public Tap getTap( Scheme scheme, String filename, SinkMode mode )
     {
-    return new Hfs( scheme, filename, mode );
+    return new Hfs( scheme, safeFileName( filename ), mode );
     }
 
   @Override
   public Tap getTextFile( Fields sourceFields, Fields sinkFields, String filename, SinkMode mode )
     {
     if( sourceFields == null )
-      return new Hfs( new TextLine(), filename, mode );
+      return new Hfs( new TextLine(), safeFileName( filename ), mode );
 
-    return new Hfs( new TextLine( sourceFields, sinkFields ), filename, mode );
+    return new Hfs( new TextLine( sourceFields, sinkFields ), safeFileName( filename ), mode );
     }
 
   @Override
   public Tap getDelimitedFile( Fields fields, boolean hasHeader, String delimiter, String quote, Class[] types, String filename, SinkMode mode )
     {
-    return new Hfs( new TextDelimited( fields, hasHeader, delimiter, quote, types ), filename, mode );
+    return new Hfs( new TextDelimited( fields, hasHeader, delimiter, quote, types ), safeFileName( filename ), mode );
     }
 
   @Override
   public Tap getDelimitedFile( Fields fields, boolean skipHeader, boolean writeHeader, String delimiter, String quote, Class[] types, String filename, SinkMode mode )
     {
-    return new Hfs( new TextDelimited( fields, skipHeader, writeHeader, delimiter, quote, types ), filename, mode );
+    return new Hfs( new TextDelimited( fields, skipHeader, writeHeader, delimiter, quote, types ), safeFileName( filename ), mode );
     }
 
   @Override
   public Tap getDelimitedFile( String delimiter, String quote, FieldTypeResolver fieldTypeResolver, String filename, SinkMode mode )
     {
-    return new Hfs( new TextDelimited( true, new DelimitedParser( delimiter, quote, fieldTypeResolver ) ), filename, mode );
+    return new Hfs( new TextDelimited( true, new DelimitedParser( delimiter, quote, fieldTypeResolver ) ), safeFileName( filename ), mode );
     }
 
   @Override
   public Tap getTemplateTap( Tap sink, String pathTemplate, int openThreshold )
     {
-    return new TemplateTap( (Hfs) sink, pathTemplate, openThreshold );
+    return new TemplateTap( (Hfs) sink, safeFileName( pathTemplate ), openThreshold );
     }
 
   @Override
   public Tap getTemplateTap( Tap sink, String pathTemplate, Fields fields, int openThreshold )
     {
-    return new TemplateTap( (Hfs) sink, pathTemplate, fields, openThreshold );
+    return new TemplateTap( (Hfs) sink, safeFileName( pathTemplate ), fields, openThreshold );
     }
 
   @Override
@@ -345,5 +385,15 @@ public class HadoopPlatform extends TestPlatform
   public String getHiddenTemporaryPath()
     {
     return Hadoop18TapUtil.TEMPORARY_PATH;
+    }
+
+  /***
+  * Replaces characters, that are not allowed by HDFS with an "_".
+  * @param filename  The filename to make safe
+  * @return The filename with all non-supported characters removed.
+   */
+  private String safeFileName( String filename )
+    {
+    return filename.replace( ":", "_" ); // not using Util.cleansePathName as it removes /
     }
   }
