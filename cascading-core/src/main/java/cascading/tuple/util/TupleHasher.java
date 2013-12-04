@@ -130,9 +130,14 @@ public class TupleHasher
   private static class ObjectHasher implements Hasher<Object>
     {
     @Override
-    public int hashCode( Object value )
+  public int hashCode( Object value )
       {
-      return value.hashCode();
+        if( value instanceof Enum ) {
+          Enum theEnum = (Enum)value;
+          return( theEnum.ordinal() ^ theEnum.name().hashCode() );
+        }else {
+          return value.hashCode();
+        }
       }
     }
-  }
+}
