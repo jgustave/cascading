@@ -25,9 +25,14 @@ import cascading.flow.FlowProcess;
 import cascading.operation.BaseOperation;
 import cascading.operation.Filter;
 import cascading.operation.FilterCall;
+import cascading.operation.expression.ExpressionFilter;
+import cascading.pipe.Each;
+import cascading.pipe.Pipe;
 import cascading.pipe.assembly.Unique;
 import cascading.tuple.Fields;
 import cascading.tuple.Tuple;
+import cascading.tuple.TupleEntry;
+import org.junit.Test;
 
 /**
  *
@@ -131,6 +136,24 @@ public class FilterTest extends CascadingTestCase
 
     assertFalse( invokeFilter( filter, new Tuple( 1, 2 ) ) );
     }
+
+  public void testOrExpression()
+    {
+    Fields           inputFields = new Fields("a","b");
+    ExpressionFilter f1          = new ExpressionFilter("( 100f < a )", new String[]{"a"}, new Class<?>[]{Float.TYPE});
+    ExpressionFilter f2          = new ExpressionFilter("( 100f < b )", new String[]{"b"}, new Class<?>[]{Float.TYPE});
+    Or               orTest      = new Or(new Fields("a"), f1,
+                                          new Fields("b"), f2);
+
+    boolean[] results = invokeFilter(orTest,
+                                     new TupleEntry[]{
+                                        new TupleEntry(inputFields,new Tuple("1","10")),
+                                        new TupleEntry(inputFields,new Tuple("2","20")) });
+
+    assertFalse(results[0]);
+    assertFalse(results[1]);
+    }
+
 
   public void testXor()
     {
